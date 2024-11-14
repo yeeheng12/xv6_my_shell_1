@@ -1,0 +1,274 @@
+#include "kernel/types.h"
+#include "user/user.h"
+#include "kernel/fcntl.h"
+
+/* Read a line of characters from stdin. */
+/*Reads a line of input (a command) from the user into a buffer (buf) with a specified size (nbuf).*/
+int getcmd(char *buf, int nbuf) {
+
+  // ##### Place your code here
+
+  //print prompt
+  //buf is a pointer to a buffer where the user in put is stored
+  //nbuf is the size of the buffer
+  //memset() fills the buffer buf with zeros 0
+  //return type 0 = input has been successfully processed, -1 = error or a special condition
+  
+  printf(">>> " );
+  memset(buf, 0, nbuf);
+  gets(buf, nbuf);
+
+  //remove newline character from the input buffer buf
+  int len = strlen(buf);
+  if (len > 0 && buf[len - 1] == '\n') {
+    buf[len - 1] = '\0';
+  }
+  
+  // Check if the user typed "exit"
+  if (strcmp(buf, "exit") == 0) {
+    return -1;  
+  }
+
+  return 0;
+}
+
+/*
+  A recursive function which parses the command
+  at *buf and executes it.
+*/
+
+__attribute__((noreturn))
+void run_command(char *buf, int nbuf, int *pcp) {
+  //buf: The buffer containing the command string to be parsed.
+  //nbuf: The size of the buffer
+  //pcp: A pointer to an integer array, used to pass information between the child and parent process
+  
+  /* Useful data structures and flags. */
+  char *commands[5][10];
+  int numargs = 0; //A counter to keep track of the number of arguments parsed
+  int numcommands = 0;
+  
+  /* Word start/end */
+  int ws = 0; //index in the buffer where each word starts
+  int we = 0; //index in the buffer where each word ends
+  int wf = 0; //flag that indicates the start of a word or argument in the input command.
+
+  /* flags to detect if the command involves input (<) or output (>) redirection */
+  int redirection_left = 0;
+  int redirection_right = 0;
+
+  /* hold the file names for input/output redirection */
+  char *file_name_l = 0;
+  char *file_name_r = 0;
+  
+  int p[10][2]; // Array to store multiple pipes
+  int pipe_count = 0;  // Counter for the number of pipes
+  int pipe_cmd = 0; // flag to indicate if the command involves a pipe
+
+  int sequence_cmd = 0; // flag to indicate if the command contains a sequence
+
+  int i = 0;
+
+  /* Parse the command character by character. */
+  
+    for (; i < nbuf; i++) {
+
+        if (buf[i] != '|') {
+        
+            if (buf[i] == '>') redirection_right = 1;
+        
+            if (buf[i] == '<') redirection_left = 1;
+        
+            if (buf[i] == ';') sequence_cmd = 1;
+        
+            if (buf[i] != ' ' && !wf) { 
+                wf = 1;
+                ws = i;
+                if (numargs < 10) commands[numcommands][numargs++] = &buf[ws]; 
+            }
+        
+            if (buf[i] == ' ' && wf) {
+                buf[i] = '\0';
+                wf = 0;
+            }
+        
+            if (!(redirection_left || redirection_right)) {
+                /* No redirection, continue parsing command. */
+                if (buf[i] != ' ' && wf) we = i; 
+        
+            } else {
+                /* Redirection command. Capture the file names. */
+                buf[i] = '\0';                                 // Null-terminate the command portion before '<'
+                i++;                                           // Move to the file name after '<'
+                while (buf[i] == ' ') i++;                     // Skip spaces
+                if (redirection_left) file_name_l = &buf[i];
+                if (redirection_right) file_name_r = &buf[i];
+                while (i < nbuf && buf[i] != ' ') i++;         // Find end of the file name
+                buf[i] = '\0';
+            }
+    
+        } else {
+            pipe_cmd = 1;
+            buf[i] = '\0';
+            pipe_count++; 
+            numcommands++;                     // Move to the next command
+            numargs = 0;
+        }
+    }
+    
+    if (wf && numargs < 10) {
+        buf[we + 1] = '\0';  
+        wf = 0;
+    }
+    
+    commands[numcommands][numargs] = 0;
+
+    // Debugging: print the contents of the buffer after parsing
+    printf("Debugging: Buffer content after parsing:\n");
+    for (int j = 0; j < nbuf; j++) {
+        if (buf[j] == '\0') {
+            printf("buf[%d]: '\\0'\n", j);  // Print null terminators explicitly
+        } else if (buf[j] == ' ') {
+            printf("buf[%d]: ' '\n", j);    // Print spaces explicitly
+        } else {
+            printf("buf[%d]: '%c'\n", j, buf[j]);
+        }
+    }
+
+    // Debugging: print the parsed commands and arguments
+    printf("Debugging: Parsed commands and arguments:\n");
+    for (int cmd = 0; cmd <= numcommands; cmd++) {
+        printf("Command %d:\n", cmd);
+        for (int arg = 0; commands[cmd][arg] != NULL; arg++) {
+            printf("  Arg %d: %s\n", arg, commands[cmd][arg]);
+        }
+    }
+    
+    if (sequence_cmd) {
+        sequence_cmd = 0;
+        if (fork() != 0) {
+        wait(0);
+        // ##### Place your code here.
+        }
+    }
+  
+  
+    if (redirection_left) {
+        int fd = open(file_name_l, O_RDONLY);
+        if (fd < 0) {
+            fprintf(2, "Error: Cannot open file %s for reading\n", file_name_l);
+            exit(1);
+        }
+        close(0);   // Close standard input
+        dup(fd);    // Redirect standard input to file descriptor
+        close(fd);  // Close original file descriptor
+    }
+
+    if (redirection_right) {
+        int fd = open(file_name_r, O_WRONLY | O_CREATE);
+        if (fd < 0) {
+            fprintf(2, "Error: Cannot open file %s for writing\n", file_name_r);
+            exit(1);
+        }
+        close(1);   // Close standard output
+        dup(fd);    // Redirect standard output to file descriptor
+        close(fd);  // Close original file descriptor
+    }
+  
+    if (strcmp(commands[0][0], "cd") == 0) {
+    // if directory not found or change of directory fails
+        if (commands[0][1] == 0) {
+            fprintf(2, "cd: missing directory argument\n");
+        } else if (chdir(commands[0][1]) < 0) {
+            fprintf(2, "cd: failed to change directory to %s\n", commands[0][1]);
+        } else {
+            write(pcp[1], commands[0][1], strlen(commands[0][1]) + 1);  // +1 to include "\0"
+        }
+        exit(2);
+    
+    } else {
+    
+        if (pipe_cmd) {
+
+            // Handle multiple pipe commands
+            int j
+            for (j = 0; j < numcommands; j++) {
+                pipe(p[j]);  // Create a pipe for each command
+
+                if (fork() == 0) {
+
+                    if (j > 0) {  // If not the first command, read from the previous pipe
+                        close(0);
+                        dup(p[j - 1][0]);
+                        close(p[j - 1][0]);
+                    }
+
+                    if (j < numcommands - 1) {  // If not the last command, write to the next pipe
+                        close(1);
+                        dup(p[j][1]);
+                        close(p[j][1]);
+                    }
+
+                    for (int k = 0; k < numcommands; k++) {
+                        close(p[k][0]);
+                        close(p[k][1]);
+                    }
+
+                    exec(commands[j][0], commands[j]);
+                    printf("exec %s failed\n", commands[j][0]);
+                    exit(1);
+                }
+            }
+
+            // Parent process: close all pipes
+            for (int k = 0; k < numcommands - 1; k++) {
+                close(p[k][0]);
+                close(p[k][1]);
+            }
+
+            // Wait for all child processes to finish
+            for (int l = 0; l < numcommands; l++) {
+                wait(0);
+            }           
+            
+        } else {     
+
+        exec(commands[0][0], commands[0]);
+        printf("exec %s failed\n", commands[0][0]);
+        } 
+
+    }
+    exit(0);
+}
+
+int main(void) {
+
+  static char buf[100];
+
+  int pcp[2];
+  pipe(pcp);
+
+  while(getcmd(buf, sizeof(buf)) >= 0){
+    if(fork() == 0)
+      run_command(buf, 100, pcp);
+    
+    int child_status;
+    wait(&child_status);
+    
+    // debugging purpose 
+    //printf("Child status: %d\n", child_status);
+  
+    if (child_status == 2) {  // check if child is status 2
+      char path[100];
+      if(read(pcp[0], path, sizeof(path)) < 0){
+        printf("Failed to read from pipe\n");
+      } else {
+        path[strlen(path)] = 0;
+        chdir(path);
+        printf("cd: changed directory to %s\n", path);
+      } 
+    }
+  }
+  printf("Exiting shell...\n");
+  exit(0);
+}
