@@ -114,18 +114,6 @@ void run_command(char *buf, int nbuf, int *pcp) {
     
     commands[numcommands][numargs] = 0;
 
-    // Debugging: print the contents of the buffer after parsing
-    printf("Debugging: Buffer content after parsing:\n");
-    for (int j = 0; j < nbuf; j++) {
-        if (buf[j] == '\0') {
-            printf("buf[%d]: '\\0'\n", j);  // Print null terminators explicitly
-        } else if (buf[j] == ' ') {
-            printf("buf[%d]: ' '\n", j);    // Print spaces explicitly
-        } else {
-            printf("buf[%d]: '%c'\n", j, buf[j]);
-        }
-    }
-
     // Debugging: print the parsed commands and arguments
     printf("Debugging: Parsed commands and arguments:\n");
     for (int cmd = 0; cmd <= numcommands; cmd++) {
@@ -279,4 +267,3 @@ int main(void) {
   printf("Exiting shell...\n");
   exit(0);
 }
-
