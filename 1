@@ -139,17 +139,37 @@ void run_command(char *buf, int nbuf, int *pcp) {
     printf("Debugging: Parsed commands and arguments:\n");
     for (int cmd = 0; cmd <= numcommands; cmd++) {
         printf("Command %d:\n", cmd);
-        for (int arg = 0; commands[cmd][arg] != NULL; arg++) {
+        for (int arg = 0; commands[cmd][arg] != 0; arg++) {
             printf("  Arg %d: %s\n", arg, commands[cmd][arg]);
         }
     }
     
     if (sequence_cmd) {
-        sequence_cmd = 0;
-        if (fork() != 0) {
-        wait(0);
-        // ##### Place your code here.
+        sequence_cmd = 0;  // Reset flag
+
+        char *current_cmd = buf;
+        char *next_cmd;
+    
+        // Split the buffer by `;` and execute each command
+        while ((next_cmd = strchr(current_cmd, ';')) != NULL) {
+            *next_cmd = '\0'; // Terminate current command at `;`
+
+        if (fork() == 0) {  // Child process to run each command
+            run_command(current_cmd, strlen(current_cmd), pcp);
+            exit(0);
         }
+        wait(0);  // Parent waits for each command to finish before continuing
+      
+        current_cmd = next_cmd + 1; // Move to the next command
+        }
+
+        // Run the final command after the last `;` if present
+        if (fork() == 0) {
+            run_command(current_cmd, strlen(current_cmd), pcp);
+            exit(0);
+        }
+        wait(0); // Wait for the last command
+        exit(0);
     }
   
   
@@ -191,8 +211,8 @@ void run_command(char *buf, int nbuf, int *pcp) {
         if (pipe_cmd) {
 
             // Handle multiple pipe commands
-            int j
-            for (j = 0; j < numcommands; j++) {
+            int j = 0;
+            for (; j < numcommands; j++) {
                 pipe(p[j]);  // Create a pipe for each command
 
                 if (fork() == 0) {
